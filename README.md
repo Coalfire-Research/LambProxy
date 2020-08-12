@@ -6,9 +6,11 @@ This tool is a mitmproxy plugin that will intercept your HTTP/S requests and red
 
 ## Usage
 Thus plugin takes a number of arguments.
-- roleArn       - Required - The AWS ARN for your Lambda Role. Create this in IAM.
-- scope         - Required - A comma-separated list of in-scope URLs.
-- maxWorkers    - Optional - Integer specifying the number of Lambda workers to spin up. Default is 1.
+
+    roleArn           - Required - The AWS ARN for your Lambda Role. Create this in IAM.
+    scope             - Required - A comma-separated list of in-scope URLs.
+    maxWorkers        - Optional - Integer specifying the number of Lambda workers to spin up. Default is 1.
+    maxInvocations    - Optional - Requests will not be forwarded to Lambda after this number is reached.
 
 ## Example
     mitmproxy -p 8000 -s lambproxy.py --set scope='http://api.ipify.org,https://api.ipify.org' --set roleArn='arn:aws:iam::123456789012:role/service-role/lambproxy-role-abcdefgh' --set maxWorkers=25

@@ -13,6 +13,7 @@ import io
 import sys
 from http.client import HTTPResponse
 import time
+import zipfile
 
 # Converts raw HTTP response data into stream object so it can be processed by http.client
 class FakeSocket():
@@ -31,11 +32,26 @@ class Lambproxy:
         self.worker_count = 0   # Keeping track of the number of functions within Lambda
 
         self.lambda_client = boto3.client('lambda')
-        self.role_arn = ""      # AWS role for lambda functions to use
-        self.invocations = 0    # Keeping track of invocations becuase $$$
+        self.role_arn = ""              # AWS role for lambda functions to use
+        self.invocations = 0            # Keeping track of invocations becuase $$$
+        self.invocations_max = None     # Can set max invocations to save $$$
 
         self.scope = []         # Comma-separated list of URLs to match for scope
     
+    # Load worker python script and create zip file 
+    def zip_worker(self):
+        # Create zip file in memory
+        z = io.BytesIO()
+        zipf = zipfile.ZipFile(z, 'w')
+
+        # Worker file scripy name
+        worker_file = f"{self.worker_name}_worker.py"
+
+        # Add worker script to zip file
+        zipf.write(worker_file)
+        zipf.close()
+        return z.getvalue()
+
 
     # Add workers to Lambda
     def lambda_create_workers(self):
@@ -46,12 +62,13 @@ class Lambproxy:
                     FunctionName=fn_name,
                     Runtime='python3.8',
                     Role=self.role_arn,
-                    Handler=f"{self.worker_name}.lambda_handler",
-                    Code={'ZipFile': open(f"{self.worker_name}.zip", 'rb').read(), },
-                    Timeout=3
+                    Handler=f"{self.worker_name}_worker.lambda_handler",
+                    #Code={'ZipFile': open(f"{self.worker_name}.zip", 'rb').read(), },
+                    Code={'ZipFile': self.zip_worker()},
+                    Timeout=10
                 )
             except Exception as e:
-                ctx.log.error("EXCEPTION: " + str(e))
+                ctx.log.error("CreateWorker EXCEPTION: " + str(e))
 
         self.worker_count = self.count_lambda_workers()
         ctx.log.info(f"Created {self.worker_count} workers")
@@ -173,9 +190,20 @@ class Lambproxy:
             default = 1,
             help = "Set max number of Lambda workers"
         )
+
+        loader.add_option(
+            name = "maxInvocations",
+            typespec = typing.Optional[int],
+            default = None,
+            help = "Set max number of Lambda invocations"
+        )
         
     # Called whenever the configuration changes
     def configure(self, updates):
+        if "maxInvocations" in updates:
+            self.invocations_max = int(ctx.options.maxInvocations)
+            ctx.log.info("Max invocations set to " + str(self.invocations_max))
+
         if "maxWorkers" in updates:
             self.worker_max = int(ctx.options.maxWorkers)
             ctx.log.info("Max workers set to " + str(self.worker_max))
@@ -204,8 +232,14 @@ class Lambproxy:
     
     # Called each time a new request comes in
     def request(self, flow: http.HTTPFlow) -> None:       
-        # Only redirect to Lambda if the URL is in scope
         
+        # If invocation limit is set, then check it first to save $$$
+        if self.invocations_max:
+            if self.invocations >= self.invocations_max:
+                ctx.log.info("Max Lambda invocations exceeded. Skipping.")
+                return
+
+        # Only redirect to Lambda if the URL is in scope
         if not self.in_scope(flow.request.pretty_url):
             return
 

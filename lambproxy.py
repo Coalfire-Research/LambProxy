@@ -16,6 +16,7 @@ from http.client import HTTPResponse
 import time
 import zipfile
 import collections
+import requests
 
 # Converts raw HTTP response data into stream object so it can be processed by http.client
 class FakeSocket():
@@ -35,12 +36,15 @@ class Lambproxy:
 
         self.lambda_client = boto3.client('lambda')
         self.regions = []               # List of enabled AWS regions
+        self.accessible_regions = []    # List of regions accessible to the aws account
         self.first_region = ""          # Keep track of original first region in list
         self.role_arn = ""              # AWS role for lambda functions to use
         self.invocations = 0            # Keeping track of invocations becuase $$$
         self.invocations_max = None     # Can set max invocations to save $$$
 
         self.scope = []         # Comma-separated list of URLs to match for scope
+
+        self.burn_trigger = None        # If this string is in the response, consider the worker's IP burned
     
     # Load worker python script and create zip file for Lambda upload
     ###############################
@@ -58,31 +62,50 @@ class Lambproxy:
         return z.getvalue()
 
 
+    # Worker IP is burned. Destroy it and recreate it
+    ###############################
+    def burn_worker(self):
+        fn_name = f"{self.worker_name}_{self.worker_current}"
+        ctx.log.warn(f"Worker_{worker_current} is burned. Rebuilding...")
+        # Current worker is burned, destroy it
+        self.lambda_client.delete_function(FunctionName=fn_name)
+        self.lambda_create_function(fn_name)
+
+
+    # Actually create a single lambda function
+    ###############################
+    def lambda_create_function(self, fn_name):
+        try:
+            self.lambda_client.create_function(
+                FunctionName=fn_name,
+                Runtime='python3.8',
+                Role=self.role_arn,
+                Handler=f"{self.worker_name}_worker.lambda_handler",
+                Code={'ZipFile': self.zip_worker()},
+                Timeout=10
+            )
+        except Exception as e:
+            ctx.log.error("CreateWorker EXCEPTION: " + str(e))
+
     # Add workers to Lambda
     ###############################
     def lambda_create_workers(self):
         for i in range(1, self.worker_max + 1):
             fn_name = self.worker_name + "_" + str(i)
-            try:
-                self.lambda_client.create_function(
-                    FunctionName=fn_name,
-                    Runtime='python3.8',
-                    Role=self.role_arn,
-                    Handler=f"{self.worker_name}_worker.lambda_handler",
-                    Code={'ZipFile': self.zip_worker()},
-                    Timeout=10
-                )
-            except Exception as e:
-                ctx.log.error("CreateWorker EXCEPTION: " + str(e))
+            self.lambda_create_function(fn_name)
             self.increment_worker()
         self.worker_count = self.count_lambda_workers()
         ctx.log.info(f"Created {self.worker_count} workers")
 
 
-    # Delete all workers from Lambda
+    # Delete all workers from specified Lambda regions
     ###############################
     def lambda_cleanup(self):
-        w_count = self.count_lambda_workers()
+        w_count = 0
+        try:
+            w_count = self.count_lambda_workers()
+        except Exception as e:
+            ctx.log.error("Exception " + str(e))
 
         # Delete functions
         if w_count > 0:
@@ -93,27 +116,34 @@ class Lambproxy:
                 for function in lambda_client.list_functions()['Functions']:
                     prefix = self.worker_name + "_"
                     if prefix in function['FunctionName']:
-                        lambda_client.delete_function(FunctionName=function['FunctionName'])
+                        try:
+                            lambda_client.delete_function(FunctionName=function['FunctionName'])
+                        except Exception as e:
+                            ctx.log.error("EXCEPTION: Could not delete lambda function: " + str(e))
 
         # Update worker count locally
         self.worker_count = self.count_lambda_workers()
         ctx.log.info(f"{self.worker_count} workers left after cleanup")
 
-    
+     
     # Get number of worker functions currently in Lambda
     ###############################
     def count_lambda_workers(self):
         function_count = 0
-
         for region in self.regions:
             lambda_client = boto3.client('lambda', region)
-            for function in lambda_client.list_functions()['Functions']:
+            try:
+                fn_list = lambda_client.list_functions()['Functions']
+            except Exception as e:
+                ctx.log.error("EXCEPTION: " + str(e))
+            for function in fn_list:
                 prefix = self.worker_name + "_"
                 if prefix in function['FunctionName']:
                     function_count = function_count + 1
 
         return function_count
     
+
     # Send request up to lambda function
     # data is a bytes object of base64 data
     ###############################
@@ -134,8 +164,9 @@ class Lambproxy:
                 'data': data.decode('ascii')
                 }))
         )
-
-        lambda_response = json.loads(response['Payload'].read().decode('utf-8'))
+        
+        lambda_response = json.loads(response['Payload'].read().decode('ascii'))
+        ctx.log.info(lambda_response)
 
         # if "data" is not returned, something went wrong in Lambda
         if "data" in lambda_response:
@@ -186,12 +217,40 @@ class Lambproxy:
                 return True
         return False
 
-    # Check a region against the list of know nregions from AWS
+    # Test a region to see if it's enabled
+    ##############################
+    def test_region(self, region):
+        sts = boto3.client('sts', region_name=region)
+        try:
+            sts.get_caller_identity()
+        except:
+            return False
+        return True
+
+    # Build a list of regions accessible to the AWS account
     ###############################
-    def valid_region(self, region):
-        v_regions = boto3.session.Session().get_available_regions('lambda')
-        if region in v_regions:
-            return True
+    def find_accessible_regions(self):
+        # Get list of all regions from AWS
+        try:
+            all_regions = boto3.session.Session().get_available_regions('lambda')
+        except:
+            ctx.log.error("EXCEPTION: " + e)
+        
+        # Test all regions. Some regions must be specifically enabled in your AWS account
+        v_regions = []
+        for region in all_regions:
+            if self.test_region(region):
+                v_regions.append(region)
+            
+        return v_regions
+
+    # Check upstream response to see if trigger was hit
+    ###############################
+    def check_trigger(self, response):
+        #ctx.log.info("response: " + response.decode('UTF-8'))
+        if self.burn_trigger:
+            if self.burn_trigger in response.decode('UTF-8'):
+                return True
         return False
 
     #############################
@@ -254,6 +313,13 @@ class Lambproxy:
             default = None,
             help = "Set max number of Lambda invocations"
         )
+
+        loader.add_option(
+            name = "trigger",
+            typespec = typing.Optional[str],
+            default = None,
+            help = "Set burn trigger string"
+        )
         
         
     # Called whenever the configuration changes
@@ -261,10 +327,13 @@ class Lambproxy:
     def configure(self, updates):
         if "regions" in updates:
             regions = str(ctx.options.regions).lower().replace(' ','').split(',')
+
+            # Build list of regions this account is able to access
+            #self.accessible_regions = self.find_accessible_regions()
             
             # Ensure entered regions are valid
             for region in regions:
-                if self.valid_region(region):
+                if self.test_region(region):
                     self.regions.append(region)
                 else:
                     raise exceptions.OptionsError(f"Invalid region '{region}'")
@@ -299,7 +368,17 @@ class Lambproxy:
             except:
                 self.invocations_max = None
         ctx.log.info("Configured max invocations: " + str(self.invocations_max))
-
+        
+        if "trigger" in updates:
+            try:
+                self.burn_trigger = str(ctx.options.trigger)
+            except:
+                self.burn_trigger = None
+            if self.burn_trigger == "":
+                self.burn_trigger = None
+        
+        ctx.log.info("Configured trigger: " + self.burn_trigger)
+        
         ctx.log.info("Cleaning up old lambda workers...")
         self.lambda_cleanup()
         ctx.log.info("Creating new lambda workers...")
@@ -334,10 +413,20 @@ class Lambproxy:
         host = flow.request.pretty_host
         port = flow.request.port
         scheme = flow.request.scheme
+
         data = base64.b64encode(assemble_request(flow.request))  
 
-        # Send request to lambda
-        response = self.send_to_lambda(scheme, host, port, data)
+        
+        
+        while True:
+            # Send request to lambda
+            response = self.send_to_lambda(scheme, host, port, data)
+
+            # If trigger string is hit, rebuild worker and send again
+            if self.check_trigger(response):
+                self.burn_worker()
+                continue
+            break
 
         # Helps parse headers from the response
         source = FakeSocket(response)

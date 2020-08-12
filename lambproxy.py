@@ -5,6 +5,7 @@ from mitmproxy.net.http.http1.assemble import assemble_request
 from mitmproxy.net.http.http1.read import read_response
 from mitmproxy import ctx
 from mitmproxy import command
+from mitmproxy import exceptions
 import typing
 import boto3
 import base64
@@ -14,6 +15,7 @@ import sys
 from http.client import HTTPResponse
 import time
 import zipfile
+import collections
 
 # Converts raw HTTP response data into stream object so it can be processed by http.client
 class FakeSocket():
@@ -32,13 +34,16 @@ class Lambproxy:
         self.worker_count = 0   # Keeping track of the number of functions within Lambda
 
         self.lambda_client = boto3.client('lambda')
+        self.regions = []               # List of enabled AWS regions
+        self.first_region = ""          # Keep track of original first region in list
         self.role_arn = ""              # AWS role for lambda functions to use
         self.invocations = 0            # Keeping track of invocations becuase $$$
         self.invocations_max = None     # Can set max invocations to save $$$
 
         self.scope = []         # Comma-separated list of URLs to match for scope
     
-    # Load worker python script and create zip file 
+    # Load worker python script and create zip file for Lambda upload
+    ###############################
     def zip_worker(self):
         # Create zip file in memory
         z = io.BytesIO()
@@ -54,6 +59,7 @@ class Lambproxy:
 
 
     # Add workers to Lambda
+    ###############################
     def lambda_create_workers(self):
         for i in range(1, self.worker_max + 1):
             fn_name = self.worker_name + "_" + str(i)
@@ -63,29 +69,31 @@ class Lambproxy:
                     Runtime='python3.8',
                     Role=self.role_arn,
                     Handler=f"{self.worker_name}_worker.lambda_handler",
-                    #Code={'ZipFile': open(f"{self.worker_name}.zip", 'rb').read(), },
                     Code={'ZipFile': self.zip_worker()},
                     Timeout=10
                 )
             except Exception as e:
                 ctx.log.error("CreateWorker EXCEPTION: " + str(e))
-
+            self.increment_worker()
         self.worker_count = self.count_lambda_workers()
         ctx.log.info(f"Created {self.worker_count} workers")
 
 
     # Delete all workers from Lambda
+    ###############################
     def lambda_cleanup(self):
         w_count = self.count_lambda_workers()
-        
+
         # Delete functions
         if w_count > 0:
-            # Find all functions with self.worker_name_ prefix
-            for function in self.lambda_client.list_functions()['Functions']:
-                prefix = self.worker_name + "_"
-                if prefix in function['FunctionName']:
-                    self.lambda_client.delete_function(FunctionName=function['FunctionName'])
-
+            # Delete in all configured regions
+            for region in self.regions:
+                lambda_client = boto3.client('lambda', region)
+                # Find all functions with self.worker_name_ prefix
+                for function in lambda_client.list_functions()['Functions']:
+                    prefix = self.worker_name + "_"
+                    if prefix in function['FunctionName']:
+                        lambda_client.delete_function(FunctionName=function['FunctionName'])
 
         # Update worker count locally
         self.worker_count = self.count_lambda_workers()
@@ -93,22 +101,29 @@ class Lambproxy:
 
     
     # Get number of worker functions currently in Lambda
+    ###############################
     def count_lambda_workers(self):
         function_count = 0
 
-        for function in self.lambda_client.list_functions()['Functions']:
-            prefix = self.worker_name + "_"
-            if prefix in function['FunctionName']:
-                function_count = function_count + 1
+        for region in self.regions:
+            lambda_client = boto3.client('lambda', region)
+            for function in lambda_client.list_functions()['Functions']:
+                prefix = self.worker_name + "_"
+                if prefix in function['FunctionName']:
+                    function_count = function_count + 1
 
         return function_count
     
     # Send request up to lambda function
     # data is a bytes object of base64 data
+    ###############################
     def send_to_lambda(self, scheme, host, port, data):
         ctx.log.info("Sending to lambda")
+
+        # Keep track of total invocations
         self.invocations = self.invocations + 1
         
+        # Invoke Lambda worker function
         response = self.lambda_client.invoke(
             FunctionName=f'{self.worker_name}_{self.worker_current}',
             InvocationType='RequestResponse',
@@ -128,22 +143,55 @@ class Lambproxy:
         else:
             response_data = f"<html><body><h1>Lambproxy ERROR</h1><br>".encode()
             ctx.log.error("Lambda response: " + str(lambda_response))
+
+        # Cycle to next worker/IP
+        self.increment_worker()
+
         return response_data
 
     
     # Every time a new request comes in, increment to the next worker
     # This is how the IP address changes with each request.
+    ###############################
     def increment_worker(self):
         self.worker_current = self.worker_current + 1
+        # Also shift the region list so we move to a different region with each request
+        self.rotate_regions()
+
+        # If we reached the last worker, start over and reset the region to the original region
         if self.worker_current > self.worker_max:
             self.worker_current = 1
+            # Reset region back to the first one
+            while self.regions[0] != self.first_region:
+                self.rotate_regions()
+
     
+    # This function rotates the list of regions to ensure we always hit a new one
+    ###############################
+    def rotate_regions(self):
+        try:
+            region_collection = collections.deque(self.regions)
+            region_collection.rotate(1)
+            self.regions = list(region_collection)
+        except Exception as e:
+            ctx.log.error("EXCEPTION rotating regions: " + str(e))
+        self.lambda_client = boto3.client('lambda', self.regions[0])
+        
 
     # Returns True if a URL is in the scope list
+    ###############################
     def in_scope(self, url):
         for scope_item in self.scope:
             if scope_item in url:
                 return True
+        return False
+
+    # Check a region against the list of know nregions from AWS
+    ###############################
+    def valid_region(self, region):
+        v_regions = boto3.session.Session().get_available_regions('lambda')
+        if region in v_regions:
+            return True
         return False
 
     #############################
@@ -164,11 +212,13 @@ class Lambproxy:
         ctx.log.info("Removing lambda workers...")
         self.lambda_cleanup()
 
+
     #############################
     # Handle MITMPROXY Events
     #############################
 
     # Called when plugin is first loaded
+    ###############################
     def load(self, loader):
         loader.add_option(
             name = "roleArn",
@@ -185,6 +235,13 @@ class Lambproxy:
         )
         
         loader.add_option(
+            name = "regions",
+            typespec = typing.Optional[str],
+            default = "",
+            help = "Comma-separated list of AWS regions for Lambda functions"
+        )
+        
+        loader.add_option(
             name = "maxWorkers",
             typespec = typing.Optional[int],
             default = 1,
@@ -198,41 +255,69 @@ class Lambproxy:
             help = "Set max number of Lambda invocations"
         )
         
+        
     # Called whenever the configuration changes
+    ###############################
     def configure(self, updates):
-        if "maxInvocations" in updates:
-            self.invocations_max = int(ctx.options.maxInvocations)
-            ctx.log.info("Max invocations set to " + str(self.invocations_max))
+        if "regions" in updates:
+            regions = str(ctx.options.regions).lower().replace(' ','').split(',')
+            
+            # Ensure entered regions are valid
+            for region in regions:
+                if self.valid_region(region):
+                    self.regions.append(region)
+                else:
+                    raise exceptions.OptionsError(f"Invalid region '{region}'")
+            self.first_region = self.regions[0]
+        ctx.log.info("Configured regions: " + str(self.regions))
+        
+        if "roleArn" in updates:
+            self.role_arn = str(ctx.options.roleArn)
+            # Check for empty Role ARN
+            if self.role_arn == "":
+                raise exceptions.OptionsError("No roleArn specified!")
+
+        ctx.log.info("Configured Role ARN: " + self.role_arn)
 
         if "maxWorkers" in updates:
             self.worker_max = int(ctx.options.maxWorkers)
-            ctx.log.info("Max workers set to " + str(self.worker_max))
-        
+        ctx.log.info("Configured max workers: " + str(self.worker_max))
+
         if "scope" in updates:
-            scope_items = str(ctx.options.scope).split(',')
+            # Check for empty scope
+            if str(ctx.options.scope) == "":
+                raise exceptions.OptionsError("No scope specified!")
+
+            scope_items = str(ctx.options.scope).lower().replace(' ','').split(',')
             for item in scope_items:
                 self.scope.append(item)
-            ctx.log.info("Scope: " + str(self.scope))
-        
-        if "roleArn" in updates:
-            ctx.log.info("Cleaning up lambda workers...")
-            self.lambda_cleanup()
+        ctx.log.info("Configured scope: " + str(self.scope)) 
 
-            self.role_arn = str(ctx.options.roleArn)
-            ctx.log.info("Role ARN set: " + self.role_arn)
+        if "maxInvocations" in updates:
+            try:
+                self.invocations_max = int(ctx.options.maxInvocations)
+            except:
+                self.invocations_max = None
+        ctx.log.info("Configured max invocations: " + str(self.invocations_max))
 
-            ctx.log.info("Creating lambda workers...")
-            self.lambda_create_workers()
+        ctx.log.info("Cleaning up old lambda workers...")
+        self.lambda_cleanup()
+        ctx.log.info("Creating new lambda workers...")
+        self.lambda_create_workers()
+       
 
     # Called when addon shuts down. Logging is disabled by this point.
+    ###############################
     def done(self):
         ctx.log.info("Cleaning up lambda workers")
         self.lambda_cleanup()
         ctx.log.info("Done")
     
     # Called each time a new request comes in
+    # This is essentialy the main loop
+    ###############################
     def request(self, flow: http.HTTPFlow) -> None:       
-        
+
         # If invocation limit is set, then check it first to save $$$
         if self.invocations_max:
             if self.invocations >= self.invocations_max:
@@ -242,9 +327,6 @@ class Lambproxy:
         # Only redirect to Lambda if the URL is in scope
         if not self.in_scope(flow.request.pretty_url):
             return
-
-        # Cycle to next worker/IP
-        self.increment_worker()
 
         ctx.log.info(f"URL {flow.request.pretty_url} is in scope")
 
@@ -275,5 +357,6 @@ class Lambproxy:
         )
         
         ctx.log.info("Lambda invocations: " + str(self.invocations) + "\n")
-        
+
+# Register addon 
 addons = [Lambproxy()]

@@ -23,11 +23,14 @@ def forward_https_request(host, port, data):
    return base64.b64encode(response).decode('UTF-8')
 
 def lambda_handler(event, context):
+    scheme = event['scheme']
     host = event['host']
     port = int(event['port'])
     data = base64.b64decode(event['data'])
     
-    if port == 443:
+    url = data[:20].decode('ascii').split(' ')[0]
+
+    if scheme == "https":
         result = forward_https_request(host, port, data)
     else:
         result = forward_http_request(host, port, data)

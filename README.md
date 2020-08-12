@@ -16,9 +16,9 @@ Thus plugin takes a number of arguments.
 ## Example
     mitmproxy -p 8000 -s lambproxy.py --set scope='http://api.ipify.org,https://api.ipify.org' --set roleArn='arn:aws:iam::123456789012:role/service-role/lambproxy-role-abcdefgh' --set maxWorkers=10 --set regions='us-west-1,us-west-2,us-east-1'
 
-![Example 1](/screenshots/Lambscan1.png?raw=true "Different IP returned from ipify.org with each request")
+![Example 1](/screenshots/Lambproxy1.png?raw=true "Different IP returned from ipify.org with each request")
 
-![Example 2](/screenshots/Lambscan2.png?raw=true "Invocation limit exceeded")
+![Example 2](/screenshots/Lambproxy2.png?raw=true "Invocation limit exceeded")
 
 ## Prerequisites
 Lambproxy will create Lambda functions within your AWS account. Therefore, it will require limited access to an AWS account in order to function properly. Lambproxy relies on Boto3 for AWS authentication. AWS access keys can be placed in environment variables, a credential file, etc as permitted by Boto3. Newly created Lambda functions will require an execution role. Below is a basic working exeecution role template. This role gives the Lambda functions access to the defined AWS resources. Your user account does not need this access.

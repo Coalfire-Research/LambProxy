@@ -12,6 +12,7 @@ Thus plugin takes a number of arguments.
     maxWorkers        - Optional - Integer specifying the number of Lambda workers to spin up. Default is 1.
     maxInvocations    - Optional - Requests will not be forwarded to Lambda after this number is reached.
     regions           - Optional - Comma-separated list of AWS regions to cycle for each request. Default is all supported regions.
+    trigger           - Optional - If this string shows up in the response, your IP is considered burned. Lambproxy rebuilds that worker and resends the request automatically.
 
 ## Example
     mitmproxy -p 8000 -s lambproxy.py --set scope='http://api.ipify.org,https://api.ipify.org' --set roleArn='arn:aws:iam::123456789012:role/service-role/lambproxy-role-abcdefgh' --set maxWorkers=10 --set regions='us-west-1,us-west-2,us-east-1'

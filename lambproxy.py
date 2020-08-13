@@ -222,7 +222,7 @@ class Lambproxy:
     ###############################
     def check_trigger(self, response):
         if self.burn_trigger:
-            if self.burn_trigger in response.decode('UTF-8'):
+            if self.burn_trigger in response.decode('utf-8', 'ignore'):
                 ctx.log.debug("Triger hit")
                 return True
         return False

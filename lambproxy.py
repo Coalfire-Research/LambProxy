@@ -363,7 +363,7 @@ class Lambproxy:
     def done(self):
         ctx.log.info("Cleaning up lambda workers")
         self.lambda_cleanup()
-        
+
     
     # Called each time a new request comes in
     # This is essentialy the main loop
@@ -385,6 +385,9 @@ class Lambproxy:
         host = flow.request.pretty_host
         port = flow.request.port
         scheme = flow.request.scheme
+
+        # If this isn't set to "close" the Lambda function will hang and timeout
+        flow.request.headers["Connection"] = "close"
 
         data = base64.b64encode(assemble_request(flow.request))  
         ctx.log.debug("Request: " + data.decode('utf-8'))

@@ -172,7 +172,7 @@ class Lambproxy:
         if "data" in lambda_response:
             response_data = base64.b64decode(lambda_response['data'])
         else:
-            response_data = f"<html><body><h1>Lambproxy ERROR</h1><br>".encode()
+            response_data = f"HTTP/1.1 500 Server Error\r\n\r\n<html><body><h1>Lambproxy ERROR</h1><br>{str(lambda_response)}\r\n\r\n".encode()
             ctx.log.error("Lambda response: " + str(lambda_response))
 
         # Cycle to next worker/IP

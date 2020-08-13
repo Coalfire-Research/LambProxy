@@ -93,7 +93,7 @@ Lambproxy has a hard time cleaning up the lambda workers automatically when mitm
     :Lambproxy.cleanup
 
 ## Caveats
-- Lambproxy is slow. It can take 2-3 seconds for a Lambda function to execute and return, which introduces considerable delay to your HTTP request. This tool will not work well for browsing complex web pages. This tool is best used to make simple, repetetive requests such as API scraping or password spraying.
+- Lambproxy is slow. It can take 2-3 seconds for a Lambda function to execute and return, which introduces delay to your HTTP request.
 - This tool fails open, so don't expect it to hide your real IP from a given target. This is not a privacy tool.
 - This tool probably breaks the AWS Acceptable Use Policy.
 

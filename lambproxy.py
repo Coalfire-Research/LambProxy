@@ -66,7 +66,7 @@ class Lambproxy:
     ###############################
     def burn_worker(self):
         fn_name = f"{self.worker_name}_{self.worker_current}"
-        ctx.log.warn(f"Worker_{worker_current} is burned. Rebuilding...")
+        ctx.log.warn(f"Worker_{self.worker_current} is burned. Rebuilding...")
         # Current worker is burned, destroy it
         self.lambda_client.delete_function(FunctionName=fn_name)
         self.lambda_create_function(fn_name)

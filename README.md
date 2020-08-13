@@ -79,7 +79,7 @@ Lambproxy must be run as a user with access to four Lambda permissions and two I
 A "Worker" is a Lambda function that acts as an HTTP/S proxy. Each worker has a chance of obtaining its own unique IP address. Each worker's IP address is set automatically by AWS when the function is invoked, though in practice each worker tends to have the same IP address with multiple invocations. Therefore, the more workers you have, the higher chance you will have a larger number of unique source IPs. It is possible for multiple workers to have the same source iP address as a coincidence. Lambproxy will create workers with the name "lambproxy_X" where X is a number 1 through (maxWorkers). Every time a new request comes in, Lambproxy will cycle to the next worker in the next region. When it reaches the maxmimum number then it cycles back to one.
 
 ## Scope
-You can specify as many scope items as you like. Scoping is not strict, but you can be more restrictive by specifying directories and subdirectories.
+You can specify as many scope items as you like. Scoping is not strict, but you can be more restrictive by specifying directories and subdirectories. If no scope is specified then all URLs are in-scope.
 
 ### Scope Examples
     scope='http://www.foo.com/'                     - Matches http://www.foo.com/*
@@ -94,6 +94,7 @@ Lambproxy has a hard time cleaning up the lambda workers automatically when mitm
 
 ## Caveats
 - Lambproxy is slow. It can take 2-3 seconds for a Lambda function to execute and return, which introduces considerable delay to your HTTP request. This tool will not work well for browsing complex web pages. This tool is best used to make simple, repetetive requests such as API scraping or password spraying.
+- This tool probably breaks the AWS Acceptable Use Policy.
 
 ## How it works
 1. mitmproxy intercepts (and decrypts, if necessary) HTTP/S traffic.

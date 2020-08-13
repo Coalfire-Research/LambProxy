@@ -363,7 +363,7 @@ class Lambproxy:
     def done(self):
         ctx.log.info("Cleaning up lambda workers")
         self.lambda_cleanup()
-        ctx.log.info("Done")
+        
     
     # Called each time a new request comes in
     # This is essentialy the main loop

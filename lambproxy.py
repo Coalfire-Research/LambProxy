@@ -166,7 +166,7 @@ class Lambproxy:
         )
         
         lambda_response = json.loads(response['Payload'].read().decode('ascii'))
-        ctx.log.info(lambda_response)
+        ctx.log.debug(lambda_response)
 
         # if "data" is not returned, something went wrong in Lambda
         if "data" in lambda_response:
@@ -415,8 +415,7 @@ class Lambproxy:
         scheme = flow.request.scheme
 
         data = base64.b64encode(assemble_request(flow.request))  
-
-        
+        ctx.log.debug("Request: " + data.decode('utf-8'))
         
         while True:
             # Send request to lambda

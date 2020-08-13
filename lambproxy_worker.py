@@ -6,27 +6,21 @@ import ssl
 
 def forward_http_request(host, port, data):
     s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    return make_request(host, port, data, s)
+   
+def forward_https_request(host, port, data):
+    context = ssl.create_default_context()
+    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    ssock = context.wrap_socket(s, server_hostname=host)
+    return make_request(host, port, data, ssock)
+
+def make_request(host, port, data, s):
     socket.setdefaulttimeout(10)
     s.connect((host,port))
     s.send(data)
     response = b''
     while True:
         recv = s.recv(1024)
-        if not recv:
-            break
-        response += recv
-    return base64.b64encode(response)
-   
-def forward_https_request(host, port, data):
-    context = ssl.create_default_context()
-    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    ssock = context.wrap_socket(s, server_hostname=host)
-    socket.setdefaulttimeout(10)
-    ssock.connect((host,port))
-    ssock.send(data)
-    response = b''
-    while True:
-        recv = ssock.recv(1024)
         if not recv:
             break
         response += recv

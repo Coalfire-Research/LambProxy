@@ -311,18 +311,15 @@ class Lambproxy:
             self.first_region = self.regions[0]
         ctx.log.info("Configured regions: " + str(self.regions))
 
-
         if "roleArn" in updates:
             self.role_arn = str(ctx.options.roleArn)
             if self.role_arn == "":                 # Check for empty Role ARN
                 raise exceptions.OptionsError("No roleArn specified!")
         ctx.log.info("Configured Role ARN: " + self.role_arn)
 
-
         if "maxWorkers" in updates:
             self.worker_max = int(ctx.options.maxWorkers)
         ctx.log.info("Configured max workers: " + str(self.worker_max))
-
 
         if "scope" in updates:
             if str(ctx.options.scope) == "":        # Check for empty scope
@@ -333,14 +330,12 @@ class Lambproxy:
                     self.scope.append(item)
         ctx.log.info("Configured scope: " + str(self.scope)) 
 
-
         if "maxInvocations" in updates:
             try:
                 self.invocations_max = int(ctx.options.maxInvocations)
             except:
                 self.invocations_max = None
         ctx.log.info("Configured max invocations: " + str(self.invocations_max))
-
 
         if "trigger" in updates:
             try:
@@ -351,9 +346,6 @@ class Lambproxy:
                 self.burn_trigger = None  
         ctx.log.info("Configured trigger: " + self.burn_trigger)
 
-
-        ctx.log.info("Cleaning up old lambda workers...")
-        self.lambda_cleanup()
         ctx.log.info("Creating new lambda workers...")
         self.lambda_create_workers()
        

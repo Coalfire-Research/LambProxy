@@ -8,7 +8,7 @@ This tool is a mitmproxy plugin that will intercept your HTTP/S requests and red
 Thus plugin takes a number of arguments.
 
     roleArn           - Required - The AWS ARN for your Lambda Role. Create this in IAM.
-    scope             - Required - Comma-separated list of in-scope URLs.
+    scope             - Optional - Comma-separated list of in-scope URLs.
     maxWorkers        - Optional - Integer specifying the number of Lambda workers to spin up. Default is 1.
     maxInvocations    - Optional - Requests will not be forwarded to Lambda after this number is reached.
     regions           - Optional - Comma-separated list of AWS regions to cycle for each request. Default is all supported regions.
@@ -83,12 +83,12 @@ You can specify as many scope items as you like. Scoping is not strict, but you 
 
 ### Scope Examples
     scope='http://www.foo.com/'                     - Matches http://www.foo.com/*
-    scope='http://www.foo.com/test/only/here'       - Matches http://www.goo.com/test/only/here*
+    scope='http://www.foo.com/test/only/here'       - Matches http://www.foo.com/test/only/here*
     scope='https://www.foo.com,https://www.foo.com' - Matches HTTP and HTTPS traffic for www.foo.com
     scope='http'                                    - Matches any URL containing "http" (all URLs)
     
 ## Cleanup
-Lambproxy has a hard time cleaning up the lambda workers automatically when mitmproxy exits. You can clean them manually within the mitmproxy console by issuing the Lambproxy.cleanup command. This command searches Lambda for for al functions matching "lambscan_x" where x is an integer. All matching functions will be deleted.
+Lambproxy has a hard time cleaning up the lambda workers automatically when mitmproxy exits. You can clean them manually within the mitmproxy console by issuing the Lambproxy.cleanup command. This command searches Lambda for for all functions matching "lambscan_x" where x is an integer. All matching functions will be deleted.
 
     :Lambproxy.cleanup
 
@@ -106,3 +106,8 @@ Lambproxy has a hard time cleaning up the lambda workers automatically when mitm
 6. The lambda worker decodes the request and forwards it to the destination server via the socket.
 7. The lambda worker receives a response, base64 encodes it, and returns this value to mitmproxy.
 8. Lambproxy decodes the response and parses it to build a mitmproxy HTTPResponse object it can then return to the browser.
+
+## Known Issues
+- The mitmproxy "done" function is supposed to automatically cleanup Lambda functions when the add-on exits. For some reason mitmproxy closes before this can happen. You have to maually execute the :Lambproxy.cleanup function from the mitmproxy console to ensure they are removed from Lambda.
+- Lambproxy creates and deletes functions one at a time. Meaning that if you create a large number of workers, it will be slower to startup and to issue the cleanup command.
+- Sometimes you have to issue the :Lambproxy.cleanup command multiple times to ensure all functions are removed. I think this may be related to API rate-limiting (The irony!)

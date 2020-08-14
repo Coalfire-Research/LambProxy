@@ -101,6 +101,7 @@ Lambproxy has a hard time cleaning up the lambda workers automatically when mitm
 - Lambproxy is slow. It can take 2-3 seconds for a Lambda function to execute and return, which introduces delay to your HTTP request.
 - This tool fails open, so don't expect it to hide your real IP from a given target. This is not a privacy tool.
 - This tool probably breaks the AWS Acceptable Use Policy.
+- Due to the nature of how this tool works, websockets are not supported.
 
 ## How it works
 1. mitmproxy intercepts (and decrypts, if necessary) HTTP/S traffic.

@@ -17,8 +17,10 @@ Thus plugin takes a number of arguments.
 ## Example
     mitmproxy -p 8000 -s lambproxy.py --set scope='http://api.ipify.org,https://api.ipify.org' --set roleArn='arn:aws:iam::123456789012:role/service-role/lambproxy-role-abcdefgh' --set maxWorkers=10 --set regions='us-west-1,us-west-2,us-east-1'
 
+Different source IP returned with each request
 ![Example 1](/screenshots/Lambproxy1.png?raw=true "Different IP returned from ipify.org with each request")
 
+Example of maximum invocations exceeded
 ![Example 2](/screenshots/Lambproxy2.png?raw=true "Invocation limit exceeded")
 
 ## Prerequisites

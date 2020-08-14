@@ -13,10 +13,8 @@ import json
 import io
 import sys
 from http.client import HTTPResponse
-import time
 import zipfile
 import collections
-import requests
 
 # Converts raw HTTP response data into stream object so it can be processed by http.client
 class FakeSocket():

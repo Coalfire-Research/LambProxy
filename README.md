@@ -18,6 +18,7 @@ Thus plugin takes a number of arguments.
     mitmproxy -p 8000 -s lambproxy.py --set scope='http://api.ipify.org,https://api.ipify.org' --set roleArn='arn:aws:iam::123456789012:role/service-role/lambproxy-role-abcdefgh' --set maxWorkers=10 --set regions='us-west-1,us-west-2,us-east-1'
 
 <div align="center">
+
 ![Example 1](/screenshots/Lambproxy1.png?raw=true "Different IP returned from ipify.org with each request")
 **Different source IP returned with each request**
 
